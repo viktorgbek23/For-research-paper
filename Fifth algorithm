@@ -1,0 +1,209 @@
+import pandas as pd 
+
+import numpy as np 
+
+import matplotlib.pyplot as plt 
+
+from openrouter import OpenRouter 
+
+import re 
+
+ API_KEY = "" 
+
+MODEL_NAME = "gpt-4o-mini" 
+
+client = OpenRouter(api_key=API_KEY) 
+
+def load_data(filepath): 
+
+    df = pd.read_csv(filepath) 
+
+    df['Date'] = pd.to_datetime(df['Date']) 
+
+    df = df.sort_values('Date') 
+
+    df = df.rename(columns={'Close/Last': 'Close'}) 
+
+    return df 
+
+def create_features(df): 
+
+    df['return'] = np.log(df['Close'] / df['Close'].shift(1)) 
+
+    df['ma_20'] = df['Close'].rolling(20).mean() 
+
+    df['ma_50'] = df['Close'].rolling(50).mean() 
+
+    df['trend_200'] = df['Close'].rolling(200).mean() 
+
+    df['volatility'] = df['return'].rolling(20).std() 
+
+  
+
+    delta = df['Close'].diff() 
+
+    gain = np.where(delta > 0, delta, 0) 
+
+    loss = np.where(delta < 0, -delta, 0) 
+
+    avg_gain = pd.Series(gain).rolling(14).mean() 
+
+    avg_loss = pd.Series(loss).rolling(14).mean() 
+
+    rs = avg_gain / avg_loss 
+
+    df['RSI'] = 100 - (100 / (1 + rs)) 
+
+  
+
+    return df 
+
+ def generate_signals(df): 
+
+    vol_limit = df['volatility'].quantile(0.75) 
+
+    df['signal'] = np.where( 
+
+        (df['ma_20'] > df['ma_50']) & 
+
+        (df['Close'] > df['trend_200']) & 
+
+        (df['volatility'] < vol_limit) & 
+
+        (df['RSI'] < 70), 
+
+        1, 
+
+        0 
+
+    ) 
+
+    return df 
+
+def get_sentiment_every_5_days(dates): 
+
+    sentiment_map = {} 
+
+    for i in range(0, len(dates), 5): 
+
+        date_str = dates.iloc[i].strftime('%Y-%m-%d') 
+
+        try: 
+
+            response = client.chat.send( 
+
+                model=MODEL_NAME, 
+
+                messages=[{"role": "user", "content": 
+
+                           f"Ange endast ett numeriskt marknadssentiment mellan -1 (mycket negativt) " 
+
+                           f"och +1 (mycket positivt) för aktiemarknaden den {date_str}. Skriv bara numret."}] 
+
+            ) 
+
+            text = response.choices[0].message.content 
+
+            match = re.search(r'-?\d+\.?\d*', text) 
+
+            sentiment = float(match.group()) if match else 0.0 
+
+        except Exception as e: 
+
+            print(f"LLM error for {date_str}: {e}") 
+
+            sentiment = 0.0 
+
+        sentiment = np.clip(sentiment, -1.0, 1.0) 
+
+        sentiment_map[dates.iloc[i]] = sentiment 
+
+        print(f"{date_str}: sentiment {sentiment}") 
+
+    return sentiment_map 
+
+def backtest(df, sentiment_map): df['position_size'] = 0.01 / df['volatility'] df['stop_loss'] = -1 * df['volatility'] df['take_profit'] = 2 * df['volatility'] 
+
+
+df['sentiment'] = 0.0 
+sentiment_dates = sorted(sentiment_map.keys()) 
+for i in range(len(sentiment_dates)): 
+    start_idx = df.index[df['Date'] == sentiment_dates[i]][0] 
+    end_idx = df.index[df['Date'] == sentiment_dates[i+1]][0] if i+1 < len(sentiment_dates) else len(df) 
+    df.loc[start_idx:end_idx-1, 'sentiment'] = sentiment_map[sentiment_dates[i]] 
+ 
+
+df['adj_position_size'] = np.where(df['sentiment'] > 0.3, df['position_size'] * 6.0, 
+                                   np.where(df['sentiment'] > 0, df['position_size'] * 3.0, 
+                                            np.where(df['sentiment'] < 0, df['position_size'] * -2.0, 
+                                                     df['position_size']))) 
+ 
+
+df['strategy_return'] = df['signal'].shift(1) * df['return'] * df['adj_position_size'] 
+df['strategy_return'] = np.clip(df['strategy_return'], df['stop_loss'], df['take_profit']) 
+ 
+
+df['cum_strategy'] = df['strategy_return'].cumsum().apply(np.exp) 
+df['cum_market'] = df['return'].cumsum().apply(np.exp) 
+ 
+return df 
+ 
+
+def monte_carlo_simulation(returns, n_sim=1000): mean = returns.mean() std = returns.std() n_days = len(returns) simulations = [] for i in range(n_sim): random_returns = np.random.normal(mean, std, n_days) path = np.cumprod(1 + random_returns) simulations.append(path) return simulations 
+
+def plot_markov_distribution(simulations): final_values = [sim[-1] for sim in simulations] plt.figure(figsize=(12,6)) counts, bins, _ = plt.hist(final_values, bins=40, density=True, alpha=0.6, edgecolor="black") from scipy.stats import gaussian_kde kde = gaussian_kde(final_values) x_vals = np.linspace(min(final_values), max(final_values), 500) y_vals = kde(x_vals) plt.plot(x_vals, y_vals, linewidth=2, label="Density Curve") plt.xlabel("Final Portfolio Value") plt.ylabel("Density") plt.title("Markov Monte Carlo Distribution") plt.legend() plt.grid(alpha=0.3) plt.show() 
+
+def sharpe_ratio(returns): return np.sqrt(252) * returns.mean() / returns.std() 
+
+def max_drawdown(cum_returns): peak = cum_returns.cummax() drawdown = (cum_returns - peak) / peak return drawdown.min() 
+
+def main(): filepath = "SPY.csv" df = load_data(filepath) df = create_features(df) df = generate_signals(df) 
+
+print("Fetching sentiment every 5 days from LLM...") 
+sentiment_map = get_sentiment_every_5_days(df['Date']) 
+ 
+print("Running backtest with long/short leverage based on sentiment...") 
+df = backtest(df, sentiment_map) 
+ 
+sharpe = sharpe_ratio(df['strategy_return'].dropna()) 
+drawdown = max_drawdown(df['cum_strategy']) 
+ 
+print("\n=== BACKTEST RESULTS ===") 
+print("Sharpe Ratio:", round(sharpe, 3)) 
+print("Maximal Drawdown:", round(drawdown*100,2), "%") 
+ 
+plt.figure(figsize=(12,6)) 
+plt.plot(df['Date'], df['cum_strategy'], label="Strategy") 
+plt.plot(df['Date'], df['cum_market'], label="Market") 
+plt.legend() 
+plt.title("Backtest with Dynamic Long/Short Leverage Based on Sentiment") 
+plt.show() 
+ 
+ 
+returns = df['strategy_return'].dropna() 
+print("\nRunning Monte Carlo Simulation...") 
+simulations = monte_carlo_simulation(returns) 
+ 
+final_values = [sim[-1] for sim in simulations] 
+print("\n=== MONTE CARLO RESULTS ===") 
+print("Worst Case:", round(min(final_values), 2)) 
+print("Best Case:", round(max(final_values), 2)) 
+print("Median:", round(np.median(final_values), 2)) 
+print("5% VaR:", round(np.percentile(final_values, 5), 2)) 
+ 
+print("Plotting distribution...") 
+plot_markov_distribution(simulations) 
+ 
+
+plt.figure(figsize=(12,6)) 
+for sim in simulations: 
+    plt.plot(sim, color="gray", alpha=0.1) 
+plt.title("Monte Carlo Simulation") 
+plt.xlabel("Days") 
+plt.ylabel("Portfolio Growth") 
+plt.show() 
+  
+
+if name == "main": main() 
+
+ 

@@ -1,0 +1,185 @@
+import pandas as pd import numpy as np import matplotlib.pyplot as plt 
+
+------------------------------- 
+
+def load_data(filepath): 
+
+df = pd.read_csv(filepath) 
+ 
+# Rensa mellanslag 
+df.columns = df.columns.str.strip() 
+ 
+# Byt namn till standard 
+df = df.rename(columns={ 
+    'Close/Last': 'Close' 
+}) 
+ 
+df['Date'] = pd.to_datetime(df['Date']) 
+df = df.sort_values('Date') 
+df.set_index('Date', inplace=True) 
+ 
+return df 
+  
+
+------------------------------- 
+
+def create_features(df): 
+
+# Log returns 
+df['return'] = np.log(df['Close'] / df['Close'].shift(1)) 
+ 
+# Moving averages 
+df['ma_20'] = df['Close'].rolling(20).mean() 
+df['ma_50'] = df['Close'].rolling(50).mean() 
+ 
+# Volatility 
+df['volatility'] = df['return'].rolling(20).std() 
+ 
+return df 
+  
+
+------------------------------- 
+
+def generate_signals(df): 
+
+df['signal'] = 0 
+ 
+df.loc[df['ma_20'] > df['ma_50'], 'signal'] = 1 
+df.loc[df['ma_20'] < df['ma_50'], 'signal'] = -1 
+ 
+# Avoid look-ahead bias 
+df['position'] = df['signal'].shift(1) 
+ 
+return df 
+  
+
+------------------------------- 
+
+def backtest(df): 
+
+df['strategy_return'] = df['position'] * df['return'] 
+ 
+df['cum_market'] = df['return'].cumsum().apply(np.exp) 
+df['cum_strategy'] = df['strategy_return'].cumsum().apply(np.exp) 
+df['strategy_return'] = np.clip(df['strategy_return'], -0.03, 0.05) 
+stop_loss = -0.02  # -2% per dag 
+ 
+df['strategy_return'] = np.where( 
+df['strategy_return'] < stop_loss, 
+stop_loss, 
+df['strategy_return'] 
+) 
+take_profit = 0.04  # +4% per dag 
+ 
+df['strategy_return'] = np.where( 
+df['strategy_return'] > take_profit, 
+take_profit, 
+df['strategy_return'] 
+) 
+ 
+return df 
+  
+
+------------------------------- 
+
+def sharpe_ratio(returns): 
+
+return np.sqrt(252) * returns.mean() / returns.std() 
+  
+
+def max_drawdown(cum_returns): 
+
+peak = cum_returns.cummax() 
+drawdown = (cum_returns - peak) / peak 
+ 
+return drawdown.min() 
+  
+
+------------------------------- 
+
+def plot_results(df): 
+
+plt.figure(figsize=(12,6)) 
+ 
+plt.plot(df['cum_market'], label='Market') 
+plt.plot(df['cum_strategy'], label='Strategy') 
+ 
+plt.title('Market vs Strategy Performance') 
+plt.xlabel('Date') 
+plt.ylabel('Growth') 
+ 
+plt.legend() 
+plt.grid() 
+ 
+plt.show() 
+  
+
+------------------------------- 
+
+def main(): 
+
+# CHANGE THIS TO YOUR FILE PATH 
+filepath = "SPY.csv" 
+ 
+print("Loading data...") 
+df = load_data(filepath) 
+ 
+print("Creating features...") 
+df = create_features(df) 
+ 
+print("Generating signals...") 
+df = generate_signals(df) 
+ 
+print("Running backtest...") 
+df = backtest(df) 
+ 
+print("Calculating performance...") 
+ 
+sharpe = sharpe_ratio(df['strategy_return']) 
+drawdown = max_drawdown(df['cum_strategy']) 
+ 
+print("\n=== RESULTS ===") 
+print(f"Sharpe Ratio: {sharpe:.3f}") 
+print(f"Max Drawdown: {drawdown:.2%}") 
+ 
+print("\nPlotting results...") 
+plot_results(df) 
+ 
+print("\nDone.") 
+  
+
+------------------------------- 
+
+if name == "main": main() import os 
+
+def optimize(): 
+
+best = -999 
+best_params = None 
+ 
+for short in range(10, 40, 5): 
+    for long in range(50, 150, 10): 
+ 
+        df = load_data("data/SPY.csv") 
+ 
+        df['ma_s'] = df['Close'].rolling(short).mean() 
+        df['ma_l'] = df['Close'].rolling(long).mean() 
+ 
+        df['signal'] = np.where( 
+            df['ma_s'] > df['ma_l'], 1, -1 
+        ) 
+ 
+        df['position'] = df['signal'].shift(1) 
+ 
+        df['return'] = np.log(df['Close']/df['Close'].shift(1)) 
+        df['strategy_return'] = df['position']*df['return'] 
+ 
+        sharpe = sharpe_ratio(df['strategy_return']) 
+ 
+        if sharpe > best: 
+            best = sharpe 
+            best_params = (short, long) 
+ 
+print("Best Sharpe:", best) 
+print("Params:", best_params) 
+ 

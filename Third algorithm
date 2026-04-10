@@ -1,0 +1,88 @@
+import pandas as pd import numpy as np import matplotlib.pyplot as plt 
+
+------------------------------- 
+
+def load_data(filepath): df = pd.read_csv(filepath) df['Date'] = pd.to_datetime(df['Date']) df = df.sort_values('Date') df = df.rename(columns={'Close/Last': 'Close'}) return df 
+
+def create_features(df): # Log returns df['return'] = np.log(df['Close'] / df['Close'].shift(1)) 
+ 
+df['ma_20'] = df['Close'].rolling(20).mean() 
+df['ma_50'] = df['Close'].rolling(50).mean() 
+df['trend_200'] = df['Close'].rolling(200).mean() 
+ 
+df['volatility'] = df['return'].rolling(20).std() 
+ 
+delta = df['Close'].diff() 
+gain = np.where(delta > 0, delta, 0) 
+loss = np.where(delta < 0, -delta, 0) 
+avg_gain = pd.Series(gain).rolling(14).mean() 
+avg_loss = pd.Series(loss).rolling(14).mean() 
+rs = avg_gain / avg_loss 
+df['RSI'] = 100 - (100 / (1 + rs)) 
+ 
+return df 
+
+def generate_signals(df): vol_limit = df['volatility'].quantile(0.75) 
+
+df['signal'] = np.where( 
+    (df['ma_20'] > df['ma_50']) & 
+    (df['Close'] > df['trend_200']) & 
+    (df['volatility'] < vol_limit) & 
+    (df['RSI'] < 70), 
+    1, 
+    0 
+) 
+return df 
+  
+
+def backtest(df):
+df['stop_loss'] = -1 * df['volatility']  
+df['take_profit'] = 2 * df['volatility'] 
+ 
+df['strategy_return'] = df['signal'].shift(1) * df['return'] * df['position_size'] 
+ 
+df['strategy_return'] = np.clip(df['strategy_return'], df['stop_loss'], df['take_profit']) 
+ 
+df['cum_strategy'] = df['strategy_return'].cumsum().apply(np.exp) 
+df['cum_market'] = df['return'].cumsum().apply(np.exp) 
+ 
+return df 
+  
+
+def sharpe_ratio(returns): return np.sqrt(252) * returns.mean() / returns.std() 
+
+def max_drawdown(cum_returns): peak = cum_returns.cummax() drawdown = (cum_returns - peak) / peak return drawdown.min() 
+
+
+
+def main(): filepath = "SPY.csv"
+
+print("Creating features...") 
+df = create_features(df) 
+ 
+print("Generating signals...") 
+df = generate_signals(df) 
+ 
+print("Running backtest...") 
+df = backtest(df) 
+ 
+print("Calculating performance...") 
+sharpe = sharpe_ratio(df['strategy_return'].dropna()) 
+drawdown = max_drawdown(df['cum_strategy']) 
+ 
+print("\n=== RESULTS ===") 
+print("Sharpe Ratio:", round(sharpe, 3)) 
+print("Maximal Drawdown:", round(drawdown * 100, 2), "%") 
+ 
+
+plt.figure(figsize=(12,6)) 
+plt.plot(df['Date'], df['cum_strategy'], label="Strategy") 
+plt.plot(df['Date'], df['cum_market'], label="Market") 
+plt.legend() 
+plt.title("Backtest Result") 
+plt.show() 
+  
+
+if name == "main": main() 
+
+ 
