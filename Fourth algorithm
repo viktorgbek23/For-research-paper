@@ -1,6 +1,5 @@
 import pandas as pd import numpy as np import matplotlib.pyplot as plt 
 
-
 def load_data(filepath): 
 
 df = pd.read_csv(filepath) 
@@ -13,7 +12,6 @@ df = df.rename(columns={'Close/Last': 'Close'})
  
 return df 
   
-
 def create_features(df): 
 
 

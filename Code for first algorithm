@@ -1,15 +1,12 @@
 import pandas as pd import numpy as np import matplotlib.pyplot as plt 
 
-------------------------------- 
 
 def load_data(filepath): 
 
 df = pd.read_csv(filepath) 
  
-# Rensa mellanslag 
 df.columns = df.columns.str.strip() 
  
-# Byt namn till standard 
 df = df.rename(columns={ 
     'Close/Last': 'Close' 
 }) 
@@ -21,25 +18,17 @@ df.set_index('Date', inplace=True)
 return df 
   
 
-------------------------------- 
-
 def create_features(df): 
 
-# Log returns 
 df['return'] = np.log(df['Close'] / df['Close'].shift(1)) 
  
-# Moving averages 
 df['ma_20'] = df['Close'].rolling(20).mean() 
 df['ma_50'] = df['Close'].rolling(50).mean() 
  
-# Volatility 
 df['volatility'] = df['return'].rolling(20).std() 
  
 return df 
   
-
-------------------------------- 
-
 def generate_signals(df): 
 
 df['signal'] = 0 
@@ -47,13 +36,11 @@ df['signal'] = 0
 df.loc[df['ma_20'] > df['ma_50'], 'signal'] = 1 
 df.loc[df['ma_20'] < df['ma_50'], 'signal'] = -1 
  
-# Avoid look-ahead bias 
 df['position'] = df['signal'].shift(1) 
  
 return df 
   
 
-------------------------------- 
 
 def backtest(df): 
 
@@ -80,8 +67,6 @@ df['strategy_return']
 return df 
   
 
-------------------------------- 
-
 def sharpe_ratio(returns): 
 
 return np.sqrt(252) * returns.mean() / returns.std() 
@@ -94,8 +79,6 @@ drawdown = (cum_returns - peak) / peak
  
 return drawdown.min() 
   
-
-------------------------------- 
 
 def plot_results(df): 
 
@@ -114,11 +97,8 @@ plt.grid()
 plt.show() 
   
 
-------------------------------- 
-
 def main(): 
 
-# CHANGE THIS TO YOUR FILE PATH 
 filepath = "SPY.csv" 
  
 print("Loading data...") 
@@ -148,7 +128,6 @@ plot_results(df)
 print("\nDone.") 
   
 
-------------------------------- 
 
 if name == "main": main() import os 
 

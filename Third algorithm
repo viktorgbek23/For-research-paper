@@ -1,6 +1,5 @@
 import pandas as pd import numpy as np import matplotlib.pyplot as plt 
 
-------------------------------- 
 
 def load_data(filepath): df = pd.read_csv(filepath) df['Date'] = pd.to_datetime(df['Date']) df = df.sort_values('Date') df = df.rename(columns={'Close/Last': 'Close'}) return df 
 
@@ -34,7 +33,6 @@ df['signal'] = np.where(
 ) 
 return df 
   
-
 def backtest(df):
 df['stop_loss'] = -1 * df['volatility']  
 df['take_profit'] = 2 * df['volatility'] 
@@ -48,12 +46,9 @@ df['cum_market'] = df['return'].cumsum().apply(np.exp)
  
 return df 
   
-
 def sharpe_ratio(returns): return np.sqrt(252) * returns.mean() / returns.std() 
 
 def max_drawdown(cum_returns): peak = cum_returns.cummax() drawdown = (cum_returns - peak) / peak return drawdown.min() 
-
-
 
 def main(): filepath = "SPY.csv"
 
@@ -74,7 +69,6 @@ print("\n=== RESULTS ===")
 print("Sharpe Ratio:", round(sharpe, 3)) 
 print("Maximal Drawdown:", round(drawdown * 100, 2), "%") 
  
-
 plt.figure(figsize=(12,6)) 
 plt.plot(df['Date'], df['cum_strategy'], label="Strategy") 
 plt.plot(df['Date'], df['cum_market'], label="Market") 
@@ -82,7 +76,6 @@ plt.legend()
 plt.title("Backtest Result") 
 plt.show() 
   
-
 if name == "main": main() 
 
  
